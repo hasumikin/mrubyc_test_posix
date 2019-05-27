@@ -1,0 +1,10 @@
+---
+target: posix
+mruby_version: mruby-2.0.1
+cruby_version: 2.6.3
+mrubyc_repo_dir: .mrubyc
+mrubyc_src_dir: mrubyc_src
+mrubyc_mrblib_dir: mrubyc_mrblib
+mruby_lib_dir: mrblib
+c_lib_dir: src
+...
