@@ -178,10 +178,12 @@ void mrbc_push_callinfo( struct VM *vm, mrbc_sym mid, int n_args )
 void mrbc_pop_callinfo( struct VM *vm )
 {
   mrbc_callinfo *callinfo = vm->callinfo_tail;
+  if( !callinfo ) return;
   vm->callinfo_tail = callinfo->prev;
   vm->current_regs = callinfo->current_regs;
   vm->pc_irep = callinfo->pc_irep;
   vm->pc = callinfo->pc;
+  vm->inst = callinfo->inst;
   vm->target_class = callinfo->target_class;
 
   mrbc_free(vm, callinfo);
@@ -865,17 +867,17 @@ static inline int op_send_by_name( mrbc_vm *vm, const char *method_name, mrbc_va
   @param  regs  pointer to regs
   @retval 0  No error.
 */
-static inline int op_sendv( mrbc_vm *vm, mrbc_value *regs )
-{
-  FETCH_BB();
+// static inline int op_sendv( mrbc_vm *vm, mrbc_value *regs )
+// {
+//   FETCH_BB();
 
-  a = a;
-  b = b;
+//   a = a;
+//   b = b;
 
-  //  const char *sym_name = mrbc_get_irep_symbol(vm->pc_irep->ptr_to_sym, b);
+//   //  const char *sym_name = mrbc_get_irep_symbol(vm->pc_irep->ptr_to_sym, b);
 
-  return 0;
-}
+//   return 0;
+// }
 
 
 
@@ -1046,7 +1048,6 @@ static inline int op_enter( mrbc_vm *vm, mrbc_value *regs )
   return R(a) (normal)
 
   @param  vm    pointer of VM.
-  @param  inst  pointer to instruction
   @param  regs  pointer to regs
   @retval 0  No error.
 */
@@ -1062,15 +1063,7 @@ static inline int op_return( mrbc_vm *vm, mrbc_value *regs )
   int nregs = vm->pc_irep->nregs;
 
   // restore irep,pc,regs
-  mrbc_callinfo *callinfo = vm->callinfo_tail;
-  if( callinfo ){
-    vm->callinfo_tail = callinfo->prev;
-    vm->current_regs = callinfo->current_regs;
-    vm->pc_irep = callinfo->pc_irep;
-    vm->pc = callinfo->pc;
-    vm->inst = callinfo->inst;
-    vm->target_class = callinfo->target_class;
-  }
+  mrbc_pop_callinfo(vm);
   
   // clear stacked arguments
   int i;
@@ -1078,9 +1071,48 @@ static inline int op_return( mrbc_vm *vm, mrbc_value *regs )
     mrbc_release( &regs[i] );
   }
 
-  // release callinfo
-  if( callinfo ) mrbc_free(vm, callinfo);
-  
+  return 0;
+}
+
+
+
+
+//================================================================
+/*!@brief
+  Execute OP_RETURN_BLK
+
+  return R(a) (normal)
+
+  @param  vm    pointer of VM.
+  @param  regs  pointer to regs
+  @retval 0  No error.
+*/
+static inline int op_return_blk( mrbc_vm *vm, mrbc_value *regs )
+{
+  FETCH_B();
+
+  int nregs = vm->pc_irep->nregs;
+  mrbc_irep *caller = vm->irep;
+
+  // trace back to caller
+  while( vm->callinfo_tail->pc_irep != caller ){
+    nregs += vm->callinfo_tail->n_args;
+    mrbc_pop_callinfo(vm);
+  }
+  mrbc_release(&vm->current_regs[0]);
+
+  // ret value
+  vm->current_regs[0] = regs[a];
+  regs[a].tt = MRBC_TT_EMPTY;
+
+  mrbc_pop_callinfo(vm);
+
+  // clear stacked arguments
+  int i;
+  for( i = 1; i < nregs; i++ ) {
+    mrbc_release( &regs[i] );
+  }
+
   return 0;
 }
 
@@ -1101,7 +1133,7 @@ static inline int op_break( mrbc_vm *vm, mrbc_value *regs )
 {
   FETCH_B();
 
-  a = a;
+  (void)a;
 
   // pop until bytecode is OP_SENDB
   mrbc_callinfo *callinfo = vm->callinfo_tail;
@@ -1163,7 +1195,6 @@ static inline int op_blkpush( mrbc_vm *vm, mrbc_value *regs )
     }
     stack = callinfo->current_regs + 1 - offset;
   }
-  mrbc_dup( stack );
   regs[a] = *stack;
 
   return 0;
@@ -1471,7 +1502,7 @@ static inline int op_lt( mrbc_vm *vm, mrbc_value *regs )
 {
   FETCH_B();
 
-  int result;
+  int result = 0;
 
   if( regs[a].tt == MRBC_TT_FIXNUM ) {
     if( regs[a+1].tt == MRBC_TT_FIXNUM ) {
@@ -1522,7 +1553,7 @@ static inline int op_le( mrbc_vm *vm, mrbc_value *regs )
 {
   FETCH_B();
 
-  int result;
+  int result = 0;
 
   if( regs[a].tt == MRBC_TT_FIXNUM ) {
     if( regs[a+1].tt == MRBC_TT_FIXNUM ) {
@@ -1573,7 +1604,7 @@ static inline int op_gt( mrbc_vm *vm, mrbc_value *regs )
 {
   FETCH_B();
 
-  int result;
+  int result = 0;
 
   if( regs[a].tt == MRBC_TT_FIXNUM ) {
     if( regs[a+1].tt == MRBC_TT_FIXNUM ) {
@@ -1624,7 +1655,7 @@ static inline int op_ge( mrbc_vm *vm, mrbc_value *regs )
 {
   FETCH_B();
 
-  int result;
+  int result = 0;
 
   if( regs[a].tt == MRBC_TT_FIXNUM ) {
     if( regs[a+1].tt == MRBC_TT_FIXNUM ) {
@@ -2007,25 +2038,25 @@ static inline int op_hash( mrbc_vm *vm, mrbc_value *regs )
   @param  regs  pointer to regs
   @retval 0  No error.
 */
-static inline int op_block( mrbc_vm *vm, mrbc_value *regs )
-{
-  FETCH_BB();
+// static inline int op_block( mrbc_vm *vm, mrbc_value *regs )
+// {
+//   FETCH_BB();
 
-  mrbc_release(&regs[a]);
+//   mrbc_release(&regs[a]);
 
-  // new proc
-  mrbc_proc *proc = mrbc_rproc_alloc(vm, "");
-  if( !proc ) return 0;	// ENOMEM
-  proc->c_func = 0;
-  proc->sym_id = -1;
-  proc->next = NULL;
-  proc->irep = vm->pc_irep->reps[b];
+//   // new proc
+//   mrbc_proc *proc = mrbc_rproc_alloc(vm, "");
+//   if( !proc ) return 0;	// ENOMEM
+//   proc->c_func = 0;
+//   proc->sym_id = -1;
+//   proc->next = NULL;
+//   proc->irep = vm->pc_irep->reps[b];
 
-  regs[a].tt = MRBC_TT_PROC;
-  regs[a].proc = proc;
+//   regs[a].tt = MRBC_TT_PROC;
+//   regs[a].proc = proc;
 
-  return 0;
-}
+//   return 0;
+// }
 
 
 
@@ -2261,7 +2292,7 @@ static inline int op_sclass( mrbc_vm *vm, mrbc_value *regs )
 {
   FETCH_B();
   // currently, not supported
-  a = a;
+  (void)a;
   
   return 0;
 }
@@ -2515,7 +2546,7 @@ void output_opcode( uint8_t opcode )
     "LOADSELF","LOADT",   "LOADF",   "GETGV",
     "SETGV",   0,         0,         "GETIV",
     "SETIV",   0,         0,         "GETCONST",
-    "SETCONST",0,         0,        "GETUPVAR",
+    "SETCONST",0,         0,         "GETUPVAR",
     // 0x20
     "SETUPVAR","JMP",     "JMPIF",   "JMPNOT",
     "JMPNIL",  0,         0,         0,
@@ -2524,7 +2555,7 @@ void output_opcode( uint8_t opcode )
     // 0x30
     0,         "SUPER",   "ARGARY",  "ENTER",
     0,         0,         0,         "RETURN",
-    0,         0,         "BLKPUSH", "ADD",
+    "RETRUN_BLK","BREAK", "BLKPUSH", "ADD",
     "ADDI",    "SUB",     "SUBI",    "MUL",
     // 0x40
     "DIV",     "EQ",      "LT",      "LE",
@@ -2533,8 +2564,8 @@ void output_opcode( uint8_t opcode )
     0,         "APOST",   0,         "STRING",
     // 0x50
     "STRCAT",  "HASH",    0,         0,
-    0,         "BLOCK",   "METHOD",  0,
-    0,         0,         "CLASS",   0,
+    0,         "BLOCK",   "METHOD",  "RANGE_INC",
+    "RANGE_EXC", 0,       "CLASS",   0,
     "EXEC",    "DEF",     0,         0,
     // 0x60
     "",        "TCLASS",  "",        "",
@@ -2624,7 +2655,7 @@ int mrbc_vm_run( struct VM *vm )
     case OP_ENTER:      ret = op_enter     (vm, regs); break;
 
     case OP_RETURN:     ret = op_return    (vm, regs); break;
-
+    case OP_RETURN_BLK: ret = op_return_blk(vm, regs); break;
     case OP_BREAK:      ret = op_break     (vm, regs); break;
 
     case OP_BLKPUSH:    ret = op_blkpush   (vm, regs); break;
